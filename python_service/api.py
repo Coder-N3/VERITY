@@ -9,6 +9,8 @@ from python_service.ela import analyze_ela
 from python_service.copy_move import analyze_copy_move
 from python_service.reverse_search import analyze_image_claim
 from python_service.google_lens import reverse_image_search
+from python_service.metadata import extract_metadata
+
 
 app = FastAPI(
     title="VERITY API",
@@ -63,10 +65,14 @@ async def analyze_image(
         with open(image_path, "wb") as image_file:
             image_file.write(content)
 
-        # 1. AI Image Detection
+        # 1. Extract Image Metadata
+        metadata = extract_metadata(image_path)
+        metadata["filename"] = filename
+
+        # 2. AI Image Detection
         ai_result = detect_ai_image(image_path)
 
-        # 2. ELA Analysis
+        # 3. ELA Analysis
         ela_output = os.path.join(
             temp_dir,
             "ela_result.png"
@@ -77,7 +83,7 @@ async def analyze_image(
             ela_output
         )
 
-        # 3. Copy-Move Analysis
+        # 4. Copy-Move Analysis
         copy_move_output = os.path.join(
             temp_dir,
             "copy_move_result.jpg"
@@ -88,7 +94,7 @@ async def analyze_image(
             copy_move_output
         )
 
-        # 4. Gemini Claim Analysis
+        # 5. Gemini Claim Analysis
         gemini_result = None
 
         if claim.strip():
@@ -107,6 +113,7 @@ async def analyze_image(
         return {
             "success": True,
             "filename": filename,
+            "metadata": metadata,
 
             "analysis": {
                 "ai_detection": ai_result,
@@ -139,7 +146,6 @@ async def analyze_image(
             shutil.rmtree(temp_dir)
 
         await file.close()
-
 
 
 @app.post("/analyze/reverse-search")

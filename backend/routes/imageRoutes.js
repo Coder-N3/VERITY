@@ -1,13 +1,7 @@
 const express = require('express')
 const multer = require('multer')
-const { execFile } = require('child_process')
-const { promisify } = require('util')
-const fs = require('fs/promises')
-const os = require('os')
-const path = require('path')
 
 const router = express.Router()
-const execFileAsync = promisify(execFile)
 
 const upload = multer({
     storage: multer.memoryStorage(),
@@ -16,21 +10,11 @@ const upload = multer({
     }
 })
 
-const projectRoot = path.join(__dirname, '..', '..')
+// Python API address
+const PYTHON_API = process.env.PYTHON_API_URL || 'http://127.0.0.1:8000'
 
-const pythonPath = path.join(
-    projectRoot,
-    '.venv',
-    'Scripts',
-    'python.exe'
-)
 
-const metadataScript = path.join(
-    projectRoot,
-    'python_service',
-    'metadata.py'
-)
-
+// IMAGE UPLOAD AND ANALYSIS
 router.post('/upload', upload.single('image'), async (req, res) => {
 
     if (!req.file) {
@@ -40,27 +24,8 @@ router.post('/upload', upload.single('image'), async (req, res) => {
         })
     }
 
-    let tempDir
-
     try {
-        tempDir = await fs.mkdtemp(
-            path.join(os.tmpdir(), 'verity-')
-        )
 
-        const extension = path.extname(req.file.originalname)
-        const imagePath = path.join(tempDir, `upload${extension}`)
-
-        await fs.writeFile(imagePath, req.file.buffer)
-
-        // 1. Extract image metadata
-        const { stdout } = await execFileAsync(
-            pythonPath,
-            [metadataScript, imagePath]
-        )
-
-        const metadata = JSON.parse(stdout)
-
-        // 2. Send image to FastAPI for AI detection
         const formData = new FormData()
 
         formData.append(
@@ -69,51 +34,44 @@ router.post('/upload', upload.single('image'), async (req, res) => {
             req.file.originalname
         )
 
-        // Forward the user's claim to Python
-formData.append('claim', req.body.claim || '')
+        formData.append('claim', req.body.claim || '')
 
-        const aiResponse = await fetch(
-            'http://127.0.0.1:8000/analyze/ai',
+        const response = await fetch(
+            `${PYTHON_API}/analyze/ai`,
             {
                 method: 'POST',
                 body: formData
             }
         )
 
-        if (!aiResponse.ok) {
-            throw new Error('AI detection service failed.')
+        const result = await response.json()
+
+        if (!response.ok) {
+            throw new Error(result.detail || 'Python analysis failed.')
         }
 
-        const aiResult = await aiResponse.json()
-
-        // 3. Return both results to React
         res.json({
             success: true,
             message: 'Image analysis completed!',
-            metadata: metadata,
-            aiDetection: aiResult
+            filename: result.filename,
+            metadata: result.metadata,
+            aiDetection: result
         })
 
     } catch (error) {
-        console.error(error)
+
+        console.error('IMAGE ANALYSIS ERROR:', error)
 
         res.status(500).json({
             success: false,
             message: 'Image analysis failed.',
             error: error.message
         })
-
-    } finally {
-        if (tempDir) {
-            await fs.rm(tempDir, {
-                recursive: true,
-                force: true
-            })
-        }
     }
 })
 
-// Reverse image search using Google Lens
+
+// REVERSE IMAGE SEARCH
 router.post('/reverse-search', upload.single('image'), async (req, res) => {
 
     if (!req.file) {
@@ -124,6 +82,7 @@ router.post('/reverse-search', upload.single('image'), async (req, res) => {
     }
 
     try {
+
         const formData = new FormData()
 
         formData.append(
@@ -133,18 +92,18 @@ router.post('/reverse-search', upload.single('image'), async (req, res) => {
         )
 
         const response = await fetch(
-            'http://127.0.0.1:8000/analyze/reverse-search',
+            `${PYTHON_API}/analyze/reverse-search`,
             {
                 method: 'POST',
                 body: formData
             }
         )
 
-        if (!response.ok) {
-            throw new Error('Google Lens search failed.')
-        }
-
         const result = await response.json()
+
+        if (!response.ok) {
+            throw new Error(result.detail || 'Google Lens search failed.')
+        }
 
         res.json({
             success: true,
@@ -152,6 +111,7 @@ router.post('/reverse-search', upload.single('image'), async (req, res) => {
         })
 
     } catch (error) {
+
         console.error('REVERSE SEARCH ERROR:', error)
 
         res.status(500).json({
@@ -161,5 +121,6 @@ router.post('/reverse-search', upload.single('image'), async (req, res) => {
         })
     }
 })
+
 
 module.exports = router
