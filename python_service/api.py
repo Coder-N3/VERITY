@@ -4,12 +4,12 @@ import tempfile
 import os
 import shutil
 
-from python_service.ai_detector import detect_ai_image
-from python_service.ela import analyze_ela
-from python_service.copy_move import analyze_copy_move
-from python_service.reverse_search import analyze_image_claim
-from python_service.google_lens import reverse_image_search
-from python_service.metadata import extract_metadata
+from ai_detector import detect_ai_image
+from ela import analyze_ela
+from copy_move import analyze_copy_move
+from reverse_search import analyze_image_claim
+from google_lens import reverse_image_search
+from metadata import extract_metadata
 
 
 app = FastAPI(
