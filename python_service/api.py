@@ -4,18 +4,14 @@ import tempfile
 import os
 import shutil
 
-from ai_detector import detect_ai_image
-from ela import analyze_ela
-from copy_move import analyze_copy_move
 from reverse_search import analyze_image_claim
 from google_lens import reverse_image_search
-from metadata import extract_metadata
 
 
 app = FastAPI(
     title="VERITY API",
-    description="Multi-method image authenticity analysis system",
-    version="3.0"
+    description="AI-powered image investigation system",
+    version="4.0"
 )
 
 
@@ -23,7 +19,8 @@ app = FastAPI(
 def home():
     return {
         "message": "VERITY API is running!",
-        "status": "online"
+        "status": "online",
+        "version": "4.0"
     }
 
 
@@ -65,67 +62,44 @@ async def analyze_image(
         with open(image_path, "wb") as image_file:
             image_file.write(content)
 
-        # 1. Extract Image Metadata
-        metadata = extract_metadata(image_path)
-        metadata["filename"] = filename
-
-        # 2. AI Image Detection
-        ai_result = detect_ai_image(image_path)
-
-        # 3. ELA Analysis
-        ela_output = os.path.join(
-            temp_dir,
-            "ela_result.png"
-        )
-
-        ela_result = analyze_ela(
+        # Gemini: Image description, AI assessment and claim analysis
+        gemini_result = analyze_image_claim(
             image_path,
-            ela_output
+            claim
         )
 
-        # 4. Copy-Move Analysis
-        copy_move_output = os.path.join(
-            temp_dir,
-            "copy_move_result.jpg"
-        )
-
-        copy_move_result = analyze_copy_move(
-            image_path,
-            copy_move_output
-        )
-
-        # 5. Gemini Claim Analysis
-        gemini_result = None
-
-        if claim.strip():
-            try:
-                gemini_result = analyze_image_claim(
-                    image_path,
-                    claim
-                )
-
-            except Exception as error:
-                gemini_result = {
-                    "success": False,
-                    "error": str(error)
+        if not gemini_result.get("success"):
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "message": "Gemini analysis failed",
+                    "error": gemini_result.get("error")
                 }
+            )
+
+        analysis = gemini_result.get("analysis", {})
 
         return {
             "success": True,
             "filename": filename,
-            "metadata": metadata,
 
             "analysis": {
-                "ai_detection": ai_result,
+                "ai_detection": analysis.get(
+                    "ai_image_assessment", {}
+                ),
 
-                "ela_analysis": {
+                "visual_description": analysis.get(
+                    "visual_description", ""
+                ),
+
+                "gemini_claim_analysis": {
                     "success": True,
-                    "result_image": ela_result
-                },
-
-                "copy_move_analysis": copy_move_result,
-
-                "gemini_claim_analysis": gemini_result
+                    "analysis": analysis.get(
+                        "claim_analysis", {}
+                    ),
+                    "model": gemini_result.get("model"),
+                    "notice": gemini_result.get("notice")
+                }
             }
         }
 
@@ -197,6 +171,7 @@ async def reverse_search_image(
         raise
 
     except Exception as error:
+
         print("GOOGLE LENS ERROR:", error)
 
         raise HTTPException(

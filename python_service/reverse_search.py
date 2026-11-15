@@ -7,7 +7,6 @@ from google import genai
 from PIL import Image
 
 
-# Load environment variables from VERITY/.env
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 
@@ -15,75 +14,87 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 
 
-def analyze_image_claim(image_path, claim):
+def analyze_image_claim(image_path, claim=""):
 
     if not API_KEY:
-        raise ValueError("GEMINI_API_KEY is missing from .env")
+        raise ValueError("GEMINI_API_KEY is missing")
 
     if not os.path.isfile(image_path):
-        raise FileNotFoundError("Image file not found.")
-
-    if not claim or not claim.strip():
-        raise ValueError("Please provide a claim to investigate.")
+        raise FileNotFoundError("Image file not found")
 
     client = genai.Client(api_key=API_KEY)
 
     prompt = f"""
-You are an image-analysis assistant for VERITY,
-a platform designed to help people investigate online claims.
+You are VERITY, an image investigation assistant.
 
-Analyze the uploaded image in relation to this claim:
+Analyze the uploaded image.
 
-CLAIM: {claim}
+USER CLAIM:
+{claim if claim.strip() else "No claim provided. Analyze the image independently."}
 
-Return ONLY valid JSON with these fields:
+Return ONLY valid JSON:
 
 {{
-    "visual_description": "Describe what is visibly present.",
-    "claim_consistency": "consistent, inconsistent, or unclear",
-    "supporting_observations": [],
-    "contradicting_observations": [],
-    "cannot_determine": [],
-    "conclusion": "A short, cautious explanation."
+    "visual_description": "Detailed description of visible content",
+
+    "ai_image_assessment": {{
+        "verdict": "likely_ai_generated, likely_camera_captured, or uncertain",
+        "observations": [],
+        "limitations": []
+    }},
+
+    "claim_analysis": {{
+        "claim": "{claim}",
+        "consistency": "consistent, inconsistent, or unclear",
+        "supporting_observations": [],
+        "contradicting_observations": [],
+        "cannot_determine": [],
+        "conclusion": ""
+    }}
 }}
 
-IMPORTANT RULES:
+RULES:
 
-1. Only describe evidence actually visible in the image.
-2. Never invent dates, locations, people, or events.
-3. Do not claim that the image is genuine just because it looks realistic.
-4. Do not claim that an event happened based only on the image.
-5. Clearly distinguish observations from assumptions.
-6. If evidence is insufficient, say unclear.
-7. Do not invent reverse-search results or external sources.
-8. Do not treat your analysis as definitive proof.
+1. Describe only what is actually visible.
+2. Never invent dates, locations, people or events.
+3. Assess AI generation cautiously.
+4. Visual inspection cannot prove image authenticity.
+5. Do not confuse realistic appearance with genuine origin.
+6. Do not claim external verification without external evidence.
+7. Distinguish visual observations from assumptions.
+8. If uncertain, explicitly say uncertain.
+9. If no claim is provided, use unclear for claim consistency.
+10. Never invent evidence.
 """
 
     try:
+
         with Image.open(image_path) as original:
             image = original.convert("RGB")
 
         response = client.models.generate_content(
-    model=MODEL_NAME,
-    contents=[prompt, image],
-    config={
-        "http_options": {
-            "timeout": 120000
-        }
-    }
-)
+            model=MODEL_NAME,
+            contents=[prompt, image],
+            config={
+                "http_options": {
+                    "timeout": 120000
+                }
+            }
+        )
 
         raw_text = response.text.strip()
 
-        # Remove optional Markdown formatting
         if raw_text.startswith("```"):
             raw_text = raw_text.replace("```json", "", 1)
             raw_text = raw_text.replace("```", "").strip()
 
         try:
             analysis = json.loads(raw_text)
+
         except json.JSONDecodeError:
-            analysis = {
+            return {
+                "success": False,
+                "error": "Gemini returned an invalid JSON response",
                 "raw_analysis": raw_text
             }
 
@@ -92,12 +103,13 @@ IMPORTANT RULES:
             "model": MODEL_NAME,
             "analysis": analysis,
             "notice": (
-                "AI visual analysis is not proof of image "
-                "authenticity or event authenticity."
+                "AI visual assessment is not definitive proof "
+                "of image authenticity."
             )
         }
 
     except Exception as error:
+
         return {
             "success": False,
             "error": str(error)
